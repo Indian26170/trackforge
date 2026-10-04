@@ -1,0 +1,88 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  DEVELOPER
+  VIEWER
+  AUDITOR
+}
+
+enum Status {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  DONE
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum IssueType {
+  BUG
+  FEATURE
+  CHORE
+  EPIC
+}
+
+model User {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String    @unique @db.VarChar(255)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  fullName     String    @map("full_name") @db.VarChar(100)
+  role         Role      @default(DEVELOPER)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  projects     Project[]
+  assigned     Issue[]   @relation("Assignee")
+  reported     Issue[]   @relation("Reporter")
+
+  @@map("users")
+}
+
+model Project {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key          String    @unique @db.VarChar(10)
+  name         String    @db.VarChar(150)
+  ownerId      String    @map("owner_id") @db.Uuid
+  owner        User      @relation(fields: [ownerId], references: [id])
+  issueCounter Int       @default(0) @map("issue_counter")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  deletedAt    DateTime? @map("deleted_at")
+  issues       Issue[]
+
+  @@map("projects")
+}
+
+model Issue {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  issueKey    String    @unique @map("issue_key") @db.VarChar(20)
+  projectId   String    @map("project_id") @db.Uuid
+  project     Project   @relation(fields: [projectId], references: [id])
+  title       String    @db.VarChar(255)
+  description String?
+  type        IssueType @default(BUG)
+  status      Status    @default(TODO)
+  priority    Priority  @default(MEDIUM)
+  assigneeId  String?   @map("assignee_id") @db.Uuid
+  assignee    User?     @relation("Assignee", fields: [assigneeId], references: [id])
+  reporterId  String    @map("reporter_id") @db.Uuid
+  reporter    User      @relation("Reporter", fields: [reporterId], references: [id])
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  @@index([projectId])
+  @@index([assigneeId])
+  @@index([status])
+  @@map("issues")
+}
