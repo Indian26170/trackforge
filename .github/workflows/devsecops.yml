@@ -1,0 +1,77 @@
+name: TrackForge DevSecOps CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-audit:
+    name: Build & Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+
+      - name: Audit backend dependencies
+        run: npm audit --audit-level=critical
+        working-directory: backend
+
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=critical
+        working-directory: frontend
+
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Semgrep
+        run: semgrep scan --config p/ci --error backend/src frontend/src
+
+  container-security:
+    name: Docker Build & Trivy Scan (${{ matrix.service }})
+    needs: [build-and-audit, semgrep]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build -t trackforge-${{ matrix.service }}:${{ github.sha }} ./${{ matrix.service }}
+
+      - name: Trivy vulnerability scan
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            ghcr.io/aquasecurity/trivy:0.69.2 image \
+            --severity CRITICAL --ignore-unfixed --exit-code 1 \
+            trackforge-${{ matrix.service }}:${{ github.sha }}
